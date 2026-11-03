@@ -9,6 +9,7 @@ using System.Text.Json.Nodes;
 // Integration contract against a real API/PostgreSQL instance. Profiles are fixed;
 // tests use an isolated database configured by the test launcher, never the play database.
 AmmoContracts.Run();
+KitContracts.Run();
 var client = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:5187") };
 client.DefaultRequestHeaders.Add("X-Marau6-Key", Environment.GetEnvironmentVariable("MARAU6_API_KEY") ?? "missing");
 int passed = 0;
@@ -253,5 +254,32 @@ var ammoResponse=await Post("/move",baseAmmoBody);var ammoReplay=await Post("/mo
 Check(Rev(ammoResponse)==Rev(ammoReplay) && Items(ammoResponse).Single(x=>Id(x!)==gunId.ToString())!["reserve"]!.GetValue<int>()==80 && !Items(ammoResponse).Any(x=>Id(x!)==spareBox.ToString()),"base ammo drag consumes once and preserves rifle identity");
 await Post("/move",new{operationId=Guid.NewGuid(),profile=1,revision=Rev(ammoResponse),item=spareBox,destination=freeSlots[0]},HttpStatusCode.Conflict);
 var ammoReport=Environment.GetEnvironmentVariable("MARAU6_AMMO_REPORT");if(ammoReport!=null)await File.WriteAllTextAsync(ammoReport,JsonSerializer.Serialize(new{body=baseAmmoBody,response=ammoResponse,rifle=gunId,consumed=spareBox,profile=1}));
+// Real HTTP BASIC kit raid: base gear stays, the kit rifle extracts into a free stash slot past the unique slot index.
+var kitProfile=await Get(1);
+if(!Items(kitProfile).Any(x=>x!["slot"]!.GetValue<int>()==10))
+    kitProfile=await Post("/move",new{operationId=Guid.NewGuid(),profile=1,revision=Rev(kitProfile),item=Id(Items(kitProfile).First(x=>x!["kind"]!.GetValue<int>()==0)!),destination=10});
+var kitBase=Items(kitProfile).Select(x=>(Id(x!),x!["slot"]!.GetValue<int>())).OrderBy(x=>x.Item1).ToList();
+var kitRaid=Guid.NewGuid();
+await Post("/raids/open",new{operationId=Guid.NewGuid(),raidId=kitRaid});
+var kitEnter=await Post("/raids/enter",new{operationId=Guid.NewGuid(),raidId=kitRaid,profile=1,revision=Rev(kitProfile),kit="basic"});
+var kitRifle=Items(kitEnter)[0]!;
+Check(Items(kitEnter).Select(x=>(x!["kind"]!.GetValue<int>(),x["slot"]!.GetValue<int>())).SequenceEqual(new[]{(0,10),(3,0),(3,1),(1,2)}),"basic entry mints rifle, two ammo boxes and medkit");
+Check(kitRifle["magazine"]!.GetValue<int>()==20 && kitRifle["reserve"]!.GetValue<int>()==40 && kitRifle["durability"]!.GetValue<int>()==10000,"basic kit rifle is fresh 20/40");
+var kitDuring=await Get(1);
+Check(Items(kitDuring).Select(x=>(Id(x!),x!["slot"]!.GetValue<int>())).OrderBy(x=>x.Item1).SequenceEqual(kitBase) && Rev(kitDuring)==Rev(kitProfile)+1,"basic entry leaves base items and slots");
+var kitState=(await client.GetFromJsonAsync<JsonObject>($"/raids/{kitRaid}"))!;
+Check(kitState["participants"]!.AsArray().Single()!["kit"]!.GetValue<string>()=="basic","basic participant recorded");
+var kitItems=kitState["items"]!.AsArray();var kitBox=Id(kitItems[1]!);var kitSpare=Id(kitItems[2]!);var kitMed=Id(kitItems[3]!);
+kitItems.Single(x=>Id(x!)==Id(kitRifle))!["reserve"]=60;Consumed(kitItems.Single(x=>Id(x!)==kitBox)!);
+await Post("/raids/snapshot",new{operationId=Guid.NewGuid(),raidId=kitRaid,sequence=1,items=kitItems,results=Array.Empty<object>()});
+Consumed(kitItems.Single(x=>Id(x!)==kitMed)!);
+await Post("/raids/snapshot",new{operationId=Guid.NewGuid(),raidId=kitRaid,sequence=2,items=kitItems,results=Array.Empty<object>()});
+Check(true,"basic kit ammo box pays rifle reserve and medkit is consumable");
+foreach(var n in kitItems.Where(x=>x!["custody"]!.GetValue<string>()=="inventory"))n!["custody"]="result";
+await Post("/raids/snapshot",new{operationId=Guid.NewGuid(),raidId=kitRaid,sequence=3,items=kitItems,results=new[]{new{profile=1,outcome="extracted"}}});
+await Post("/raids/close",new{operationId=Guid.NewGuid(),raidId=kitRaid});
+var kitAfter=await Get(1);var kitSlots=Items(kitAfter).Select(x=>x!["slot"]!.GetValue<int>()).ToList();
+Check(kitBase.All(x=>Items(kitAfter).Any(y=>Id(y!)==x.Item1 && y!["slot"]!.GetValue<int>()==x.Item2)) && Items(kitAfter).Single(x=>Id(x!)==Id(kitRifle))!["slot"]!.GetValue<int>() is >=100 and <132 && kitSlots.Distinct().Count()==kitSlots.Count,"basic extraction remaps kit rifle to free stash slot");
+Check(Items(kitAfter).Single(x=>Id(x!)==Id(kitRifle))!["reserve"]!.GetValue<int>()==60 && Items(kitAfter).Count(x=>Id(x!)==kitSpare)==1 && !Items(kitAfter).Any(x=>Id(x!)==kitBox||Id(x!)==kitMed) && Items(kitAfter).Count==kitBase.Count+2,"basic extraction keeps surviving kit and drops consumed kit");
 Console.WriteLine($"ALL {passed} CONTRACT ASSERTIONS PASSED");
 static JsonObject JsonSerializerNode(object value)=>System.Text.Json.JsonSerializer.SerializeToNode(value)!.AsObject();

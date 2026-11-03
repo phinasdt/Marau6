@@ -1,12 +1,15 @@
 #include "Marau6PlayerController.h"
 #include "Marau6InventoryUIModel.h"
 #include "Marau6InventoryWidget.h"
+#include "Marau6HUDWidget.h"
 #include "Marau6InventorySlot.h"
 #include "Marau6Character.h"
 #include "Marau6HealingComponent.h"
 #include "Marau6InventoryComponent.h"
 #include "Marau6ItemLedger.h"
 #include "Marau6Persistence.h"
+#include "Marau6Audio.h"
+#include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
 #include "Engine/LocalPlayer.h"
 #include "Serialization/JsonSerializer.h"
@@ -44,7 +47,18 @@ const TArray<FMarau6Item>& AMarau6PlayerController::GetInventoryUIItems() const
             }
         }
     }
-    return CachedBaseItems;
+    if(!bBasicKit)return CachedBaseItems;
+    // Basic kit preview: rifle 20/40, two ammo boxes and a medkit, as the backend mints
+    // them on entry. Fixed preview ids; the profile's own equipment stays untouched.
+    CachedKitItems=CachedBaseItems.FilterByPredicate([](const FMarau6Item& I){return I.Slot>=100;});
+    const TPair<EMarau6ItemKind,int32> Kit[]={{EMarau6ItemKind::Rifle,Marau6Slots::Weapon},{EMarau6ItemKind::Ammo,0},{EMarau6ItemKind::Ammo,1},{EMarau6ItemKind::Supply,2}};
+    for(int32 N=0;N<4;N++)
+    {
+        FMarau6Item I;I.Id=FGuid(0x4B495400,0,0,N+1);I.Kind=Kit[N].Key;I.Slot=Kit[N].Value;
+        if(I.IsRifle()){I.Magazine=20;I.Reserve=40;}
+        CachedKitItems.Add(I);
+    }
+    return CachedKitItems;
 }
 const FMarau6Item* AMarau6PlayerController::InventoryUIItemAt(int32 Slot) const
 {return GetInventoryUIItems().FindByPredicate([Slot](const auto& I){return I.Slot==Slot;});}
@@ -80,12 +94,14 @@ bool AMarau6PlayerController::CaptureInventoryDrag(int32 Slot,FMarau6InventoryUI
     if(HasAuthority())RefreshInventoryContext();
     if(!IsInventoryVisible() || IsInventoryReadOnly() || !InventoryContext.IsValid()){InventoryMessage=TEXT("Inventario indisponivel neste estado.");return false;}
     if(InventoryRequestPending()){InventoryMessage=TEXT("Aguarde a transferencia pendente.");return false;}
+    if(IsKitLocked(Slot)){InventoryMessage=TEXT("Kit basico bloqueado. Troque para o kit personalizado para editar.");return false;}
     const auto* I=InventoryUIItemAt(Slot);if(!I)return false;
     Out=FMarau6InventoryUIRequest();Out.RequestId=FGuid::NewGuid();Out.Context=InventoryContext;Out.Source=Slot;Out.Item=I->Id;Out.Profile=BaseProfile;Out.Revision=InventoryUIRevision();
     SelectInventorySlot(Slot);return true;
 }
 bool AMarau6PlayerController::SubmitInventoryDrop(FMarau6InventoryUIRequest R,int32 Destination)
 {
+    if(IsKitLocked(Destination)){InventoryMessage=TEXT("Kit basico bloqueado. Troque para o kit personalizado para editar.");return false;}
     if(InventoryRequestPending()){InventoryMessage=TEXT("Aguarde a transferencia pendente.");return false;}
     if(IsInventoryReadOnly() || !IsInventoryVisible() || R.Context!=InventoryContext){InventoryMessage=TEXT("O inventario mudou; tente novamente.");return false;}
     const auto* I=InventoryUIItemAt(R.Source);
@@ -182,6 +198,11 @@ void AMarau6PlayerController::UpdateInventoryUI()
     if(Visible && !InventoryWidget)
     {InventoryWidget=CreateWidget<UMarau6InventoryWidget>(this,UMarau6InventoryWidget::StaticClass());if(InventoryWidget)InventoryWidget->AddToPlayerScreen(20);}
     if(InventoryWidget)InventoryWidget->SetVisibility(Visible?ESlateVisibility::Visible:ESlateVisibility::Collapsed);
+    // The raid HUD steps aside while the inventory covers the screen.
+    const bool ShowHUD=!AtBase && !Visible && Cast<AMarau6Character>(GetPawn());
+    if(ShowHUD && !HUDWidget)
+    {HUDWidget=CreateWidget<UMarau6HUDWidget>(this,UMarau6HUDWidget::StaticClass());if(HUDWidget)HUDWidget->AddToPlayerScreen(10);}
+    if(HUDWidget)HUDWidget->SetVisibility(ShowHUD?ESlateVisibility::HitTestInvisible:ESlateVisibility::Collapsed);
     if(Visible!=bInventoryInputActive)
     {
         bInventoryInputActive=Visible;bShowMouseCursor=Visible;CancelInventoryDrag();
@@ -191,7 +212,7 @@ void AMarau6PlayerController::UpdateInventoryUI()
     }
 }
 void AMarau6PlayerController::PlayerTick(float Delta)
-{Super::PlayerTick(Delta);UpdateInventoryUI();}
+{Super::PlayerTick(Delta);UpdateInventoryUI();UpdateRaidGas();}
 void AMarau6PlayerController::TickActor(float Delta,ELevelTick Type,FActorTickFunction& Function)
 {
     // Dedicated-server remote controllers do not execute PlayerTick.
@@ -200,6 +221,9 @@ void AMarau6PlayerController::TickActor(float Delta,ELevelTick Type,FActorTickFu
 void AMarau6PlayerController::EndPlay(EEndPlayReason::Type Reason)
 {
     CancelInventoryDrag();if(InventoryWidget){InventoryWidget->RemoveFromParent();InventoryWidget=nullptr;}
+    if(HUDWidget){HUDWidget->RemoveFromParent();HUDWidget=nullptr;}
+    // An activated reverb outlives PIE on the editor's audio device unless removed.
+    if(IsLocalPlayerController())UGameplayStatics::DeactivateReverbEffect(this,Marau6Audio::AmbientReverbTag);
     if(IsLocalPlayerController()){bShowMouseCursor=false;bInventoryInputActive=false;if(GetLocalPlayer() && GetLocalPlayer()->ViewportClient)SetInputMode(FInputModeGameOnly());}
     Super::EndPlay(Reason);
 }
@@ -219,6 +243,7 @@ bool AMarau6PlayerController::HandleInventoryKey(FKey Key)
     if(Key==EKeys::Two && IsInventoryAtBase()){CancelInventoryDrag();SelectTwo();return true;}
     if(Key==EKeys::B && IsInventoryAtBase()){CancelInventoryDrag();BaseEnter();return true;}
     if(Key==EKeys::N && IsInventoryAtBase()){CancelInventoryDrag();BaseNext();return true;}
+    if(Key==EKeys::K && IsInventoryAtBase()){CancelInventoryDrag();ToggleKit();return true;}
     if(Key==EKeys::Up){if(IsInventoryAtBase())BaseUp();else if(C)C->SelectInventorySlot((C->GetSelectedInventorySlot()+10)%11);return true;}
     if(Key==EKeys::Down){if(IsInventoryAtBase())BaseDown();else if(C)C->SelectInventorySlot((C->GetSelectedInventorySlot()+1)%11);return true;}
     if(Key==EKeys::Left && IsInventoryAtBase()){BaseLeft();return true;}

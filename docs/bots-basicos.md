@@ -5,7 +5,7 @@ A arena possui três bots por rodada. Eles patrulham áreas navegáveis, enxerga
 
 Cada bot tem100 de vida. O tiro causa10 de dano, com reação inicial de1 segundo, intervalo mínimo de0,8 segundo e dispersão de3 graus. Dano, cadência, escolha de alvo, movimento e morte são resolvidos no servidor. Os clientes exibem os mesmos personagens, movimento e efeitos. O rifle dos jogadores continua causando25 de dano.
 
-Bots são identificados pelo texto vermelho BOT. Ao morrer, deixam uma Peça com GUID único. O rifle visível do bot não é coletável; munição/recarga e inventário completo de bots estão fora desta etapa. A morte usa uma pose simples, sem ragdoll. O corpo é removido após8 segundos. Queda/apoio das caixas continuam adiados conforme FUT-001.
+Bots são identificados pelo texto vermelho BOT. Ao morrer, deixam uma Peça com GUID único. O rifle visível do bot não é coletável; munição/recarga e inventário completo de bots estão fora desta etapa. A morte usa uma pose simples, sem ragdoll. O corpo (ragdoll) fica 5 minutos e então é removido; uma nova rodada remove todos os bots antes disso. Queda/apoio das caixas continuam adiados conforme FUT-001.
 
 O loot passa pelo mesmo ledger, validação de coleta e persistência dos outros itens. A identidade do prêmio é estável, inclusive se houver repetição de dano ou falha de gravação. O registro durável precede a exposição do item. Falha de gravação impede confirmar a morte/concessão; falha apenas na criação visual usa a recuperação de loot existente, preservando o GUID. O servidor não recria kits de jogadores.
 

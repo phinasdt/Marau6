@@ -17,7 +17,11 @@ AMarau6LootActor::AMarau6LootActor()
     Mesh=CreateDefaultSubobject<UStaticMeshComponent>(TEXT("LootMesh"));Mesh->SetupAttachment(Bounds);
     Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);Mesh->SetCanEverAffectNavigation(false);
     static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> Rifle(TEXT("/Game/Weapons/Rifle/Meshes/SM_Rifle.SM_Rifle"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> Rifle(TEXT("/Game/Weapons/Lasgun/Meshes/SM_Lasgun.SM_Lasgun"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> Medkit(TEXT("/Game/Marau6/Items/Medkit/SM_Medkit.SM_Medkit"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> Ammo(TEXT("/Game/Marau6/Items/AmmoBox/SM_AmmoBox.SM_AmmoBox"));
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> Scrap(TEXT("/Game/Marau6/Items/ScrapMetal/SM_ScrapMetal.SM_ScrapMetal"));
+    MedkitMesh=Medkit.Object;AmmoMesh=Ammo.Object;ScrapMesh=Scrap.Object;
     BoxMesh=Cube.Object;RifleMesh=Rifle.Object;Mesh->SetStaticMesh(BoxMesh);Mesh->SetRelativeScale3D(FVector(.35,.35,.25));
     Label=CreateDefaultSubobject<UTextRenderComponent>(TEXT("LootLabel"));Label->SetupAttachment(Bounds);
     Label->SetRelativeLocation(FVector(0,0,40));Label->SetRelativeRotation(FRotator(0,180,0));
@@ -33,12 +37,28 @@ void AMarau6LootActor::SetItem(const FMarau6Item& Value) { if(HasAuthority()){It
 void AMarau6LootActor::OnRep_Item()
 {
     if(!Item.Id.IsValid()) return;
-    Mesh->SetStaticMesh(Item.IsRifle()?RifleMesh:BoxMesh);
-    Mesh->SetRelativeScale3D(Item.IsRifle()?FVector(.8):FVector(.35,.35,.25));
-    Mesh->SetRelativeRotation(Item.IsRifle()?FRotator(0,-90,0):FRotator::ZeroRotator);
-    Bounds->SetBoxExtent(Item.IsRifle()?FVector(60,30,20):FVector(30,30,20));
     Label->SetText(FText::FromString(Item.IsAmmo()?TEXT("Municao | 20 balas"):Item.Name()));
-    if(Item.IsAmmo())Mesh->SetRelativeScale3D(FVector(.26,.20,.18));
+    if(Item.IsRifle())
+    {
+        Mesh->SetStaticMesh(RifleMesh);Mesh->SetRelativeScale3D(FVector(.8));Mesh->SetRelativeRotation(FRotator(0,-90,0));
+        Mesh->SetRelativeLocation(FVector::ZeroVector);Bounds->SetBoxExtent(FVector(60,30,20));Label->SetRelativeLocation(FVector(0,0,40));
+        return;
+    }
+    // Source models come in at very different units: about 30 cm medkit, 40 cm crate and scrap.
+    UStaticMesh* Look=Item.Kind==EMarau6ItemKind::Supply?MedkitMesh:Item.IsAmmo()?AmmoMesh:ScrapMesh;
+    const float Scale=Item.Kind==EMarau6ItemKind::Supply?1.4f:Item.IsAmmo()?.012f:.1f;
+    if(!Look)
+    {
+        Mesh->SetStaticMesh(BoxMesh);Mesh->SetRelativeScale3D(FVector(.35,.35,.25));Mesh->SetRelativeRotation(FRotator::ZeroRotator);
+        Mesh->SetRelativeLocation(FVector::ZeroVector);Bounds->SetBoxExtent(FVector(30,30,20));Label->SetRelativeLocation(FVector(0,0,40));
+        return;
+    }
+    // Centre each model in the pickup box, whatever its pivot, and size the box to it.
+    const FBox Box=Look->GetBoundingBox();const FVector Half=Box.GetExtent()*Scale;
+    Mesh->SetStaticMesh(Look);Mesh->SetRelativeScale3D(FVector(Scale));Mesh->SetRelativeRotation(FRotator::ZeroRotator);
+    Mesh->SetRelativeLocation(-Box.GetCenter()*Scale);
+    Bounds->SetBoxExtent(FVector(FMath::Max(Half.X,15.),FMath::Max(Half.Y,15.),FMath::Max(Half.Z,10.)));
+    Label->SetRelativeLocation(FVector(0,0,Half.Z+25.));
 }
 void AMarau6LootActor::Consume() { if(HasAuthority()){SetActorHiddenInGame(true);SetActorEnableCollision(false);Destroy();} }
 void AMarau6LootActor::EndPlay(EEndPlayReason::Type Reason)

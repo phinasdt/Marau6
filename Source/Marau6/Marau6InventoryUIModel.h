@@ -27,6 +27,12 @@ struct FMarau6InventoryUIReceipt
     int32 Revision=0;
 };
 
+/** Structured copy for the inspection panel. */
+struct FMarau6ItemInspection
+{
+    FString Category,Title,Subtitle,Lead,Body;
+};
+
 /** Presentation rules; the ledger/backend remain the only item writers. */
 struct FMarau6InventoryUIModel
 {
@@ -34,4 +40,8 @@ struct FMarau6InventoryUIModel
     static FString MoveReason(const TArray<FMarau6Item>& Items,int32 Source,int32 Destination,bool bBase);
     static FString SlotName(int32 Slot);
     static FString Details(const FMarau6Item& Item);
+    /** Short code and category shown inside a slot, e.g. MED / SUPRIMENTOS. */
+    static FString ShortLabel(const FMarau6Item& Item);
+    static FString Category(const FMarau6Item& Item);
+    static FMarau6ItemInspection Inspect(const FMarau6Item* Item,int32 Slot);
 };

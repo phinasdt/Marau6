@@ -31,3 +31,36 @@ FString FMarau6InventoryUIModel::Details(const FMarau6Item& I)
     if(I.Kind==EMarau6ItemKind::Supply)return Info+TEXT("Recupera ate 40 de vida\nTempo: 4 segundos\nUso unico\n\nUse na partida, parado no chao.\nMovimento ou dano interrompem a cura.\nVida cheia nao consome o item.");
     return Info+TEXT("Material coletavel\n\nPode ser guardado e extraido.\nSem uso de crafting neste prototipo.");
 }
+FString FMarau6InventoryUIModel::ShortLabel(const FMarau6Item& I)
+{return I.IsRifle()?TEXT("RIFLE"):I.IsAmmo()?TEXT("MUN"):I.Kind==EMarau6ItemKind::Supply?TEXT("MED"):TEXT("MAT");}
+FString FMarau6InventoryUIModel::Category(const FMarau6Item& I)
+{return I.IsRifle()?FString::Printf(TEXT("%.1f%%"),I.Durability/100.f):I.IsAmmo()?TEXT("20 BALAS"):I.Kind==EMarau6ItemKind::Supply?TEXT("SUPRIMENTOS"):TEXT("PE\u00C7AS");}
+FMarau6ItemInspection FMarau6InventoryUIModel::Inspect(const FMarau6Item* I,int32 Slot)
+{
+    FMarau6ItemInspection R;
+    if(!I){R.Category=TEXT("SLOT VAZIO");R.Title=TEXT("\u2014");R.Subtitle=SlotName(Slot);R.Lead=TEXT("Selecione um item para ver os detalhes.");return R;}
+    if(I->IsRifle())
+    {
+        R.Category=TEXT("ARMA PRINCIPAL");R.Title=TEXT("RIFLE");R.Subtitle=FString::Printf(TEXT("CONDI\u00C7\u00C3O %.1f%%"),I->Durability/100.f);
+        R.Lead=FString::Printf(TEXT("Carregador %d / 20  \u00B7  Reserva %d"),I->Magazine,I->Reserve);
+        R.Body=(I->Durability<=0?TEXT("Sem condi\u00E7\u00E3o de disparar.\n"):TEXT("Autom\u00E1tico: segure o bot\u00E3o de disparo. Perde 1 ponto por disparo aceito.\n"))+FString(TEXT("Recarregar n\u00E3o repara. Rifles n\u00E3o cabem no safe pocket."));
+    }
+    else if(I->IsAmmo())
+    {
+        R.Category=TEXT("MUNI\u00C7\u00C3O");R.Title=TEXT("MUNI\u00C7\u00C3O");R.Subtitle=TEXT("CAIXA DE 20 BALAS");
+        R.Lead=TEXT("Arraste sobre um rifle para abastecer sua reserva.");
+        R.Body=TEXT("Limite da reserva: 120 balas.\nA caixa \u00E9 consumida inteira. Use R para carregar a arma.");
+    }
+    else if(I->Kind==EMarau6ItemKind::Supply)
+    {
+        R.Category=TEXT("SUPRIMENTO M\u00C9DICO");R.Title=TEXT("SUPRIMENTOS");R.Subtitle=TEXT("USO \u00DANICO");
+        R.Lead=TEXT("Recupera at\u00E9 40 de vida em 4 segundos.");
+        R.Body=TEXT("Use na partida, parado no ch\u00E3o.\nMovimento ou dano interrompem a cura.\nVida cheia n\u00E3o consome o item.");
+    }
+    else
+    {
+        R.Category=TEXT("MATERIAL COLET\u00C1VEL");R.Title=TEXT("PE\u00C7AS");R.Subtitle=TEXT("RECUPERADAS EM INCURS\u00C3O");
+        R.Lead=TEXT("Pode ser guardado e extra\u00EDdo.");R.Body=TEXT("Sem uso de crafting neste prot\u00F3tipo.");
+    }
+    return R;
+}

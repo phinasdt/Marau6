@@ -7,6 +7,7 @@
 #include "Marau6LootActor.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
+#include "Engine/Font.h"
 #include "GameFramework/PlayerController.h"
 
 void AMarau6PrototypeHUD::DrawHUD()
@@ -55,72 +56,90 @@ void AMarau6PrototypeHUD::DrawHUD()
 
     const AMarau6Character* Character = Cast<AMarau6Character>(PlayerOwner->GetPawn());
     if (!Character) return;
+    if (BasePC && BasePC->HasHUDWidget())
+    {
+        if (Character->CanParticipate() && !Character->IsInventoryOpen())
+        {
+            const float X = Canvas->ClipX * 0.5f, Y = Canvas->ClipY * 0.5f;
+            DrawLine(X - 7.f, Y, X + 7.f, Y, FLinearColor(.91f, .89f, .84f, .9f), 1.5f);
+            DrawLine(X, Y - 7.f, X, Y + 7.f, FLinearColor(.91f, .89f, .84f, .9f), 1.5f);
+        }
+        return;
+    }
 
-    DrawRect(FLinearColor(0.f, 0.f, 0.f, 0.65f), 12.f, 12.f, 560.f, 210.f);
+    // Fallback without the Slate HUD, as terse as the widget: ammo over a red health bar
+    // bottom right, extraction countdown, loot prompt, crosshair and the result.
     const bool bAlive = Character->IsAlive();
     const EMarau6RaidState Raid = Character->GetRaidState();
-    DrawText(FString::Printf(TEXT("VIDA: %.0f / 100"), Character->GetHealth()),
-        bAlive ? FLinearColor::White : FLinearColor::Red, 22.f, 20.f,
-        GEngine->GetMediumFont(), 1.f);
-    DrawText(FString::Printf(TEXT("MUNICAO: %d | RESERVA: %d | DURABILIDADE: %.1f%%"),
-        Character->GetMagazineAmmo(), Character->GetReserveAmmo(),Character->GetRifleDurability()/100.f),
-        FLinearColor::White, 22.f, 50.f, GEngine->GetSmallFont(), 1.f);
-    const TCHAR* Status = Raid == EMarau6RaidState::Extracted ? TEXT("EXTRAIDO - reinicie o teste") : !bAlive ? TEXT("ELIMINADO - reinicie o teste")
-        : Character->GetHealing()->IsHealing() ? TEXT("CURANDO - tiro e recarga bloqueados")
-        : !Character->HasEquippedRifle() ? TEXT("SEM ARMA - equipe um rifle pelo inventario")
-        : Character->GetRifleDurability()<=0 ? TEXT("DURABILIDADE: 0% - ARMA NAO DISPARA")
-        : Character->IsInventoryOpen() ? TEXT("TAB: fechar inventario | R: recarregar")
-        : Character->IsReloading() ? TEXT("RECARREGANDO...")
-        : Character->GetMagazineAmmo() == 0 && Character->GetReserveAmmo() == 0
-            ? TEXT("SEM MUNICAO")
-            : TEXT("Clique: disparar | R: recarregar");
-    DrawText(Status, FLinearColor::White, 22.f, 78.f, GEngine->GetSmallFont(), 1.f);
-    FString ExtractionText = TEXT("EXTRACAO: procure a area verde e permaneca nela");
-    if (Raid == EMarau6RaidState::Extracting)
-        ExtractionText = FString::Printf(TEXT("EXTRAINDO: %.1f s | sair da area cancela"), Character->GetExtractionSecondsRemaining());
-    else if (Raid == EMarau6RaidState::Extracted)
-        ExtractionText = TEXT("RESULTADO: EXTRAIDO COM SUCESSO");
-    else if (!bAlive)
-        ExtractionText = TEXT("RESULTADO: ELIMINADO");
-    DrawText(ExtractionText, Raid == EMarau6RaidState::Extracted ? FLinearColor::Green : FLinearColor::White,
-        22.f, 112.f, GEngine->GetSmallFont(), 1.f);
-    if (!Character->CanParticipate())
-    {
-        DrawRect(FLinearColor(0.f,0.f,0.f,.7f), Canvas->ClipX*.5f-190.f, Canvas->ClipY*.5f-35.f,380.f,80.f);
-        DrawText(Raid == EMarau6RaidState::Extracted ? TEXT("EXTRAIDO COM SUCESSO") : TEXT("ELIMINADO"),
-            Raid == EMarau6RaidState::Extracted ? FLinearColor::Green : FLinearColor::Red,
-            Canvas->ClipX*.5f-165.f, Canvas->ClipY*.5f-22.f, GEngine->GetMediumFont(),1.f);
-        DrawText(BasePC && BasePC->IsUsingBase()?TEXT("Salvando resultado; retorno a base apos confirmacao"):TEXT("Reinicie o Play para uma nova partida de teste"),FLinearColor::White,
-            Canvas->ClipX*.5f-175.f, Canvas->ClipY*.5f+12.f,GEngine->GetSmallFont(),1.f);
-    }
-    if (Character->CanParticipate())
-    {
-        const float X = Canvas->ClipX * 0.5f;
-        const float Y = Canvas->ClipY * 0.5f;
-        DrawLine(X - 7.f, Y, X + 7.f, Y, FLinearColor::White, 1.5f);
-        DrawLine(X, Y - 7.f, X, Y + 7.f, FLinearColor::White, 1.5f);
-    }
-    const auto* Healing=Character->GetHealing();
-    if(Healing->IsHealing())
-    {
-        DrawText(FString::Printf(TEXT("CURANDO: %.1fs | H: cancelar"),Healing->Remaining()),FLinearColor::Yellow,22,165,GEngine->GetSmallFont(),1);
-        DrawRect(FLinearColor(.15f,.15f,.15f,.9f),22,190,360,7);DrawRect(FLinearColor::Green,22,190,360*FMath::Clamp(1.f-Healing->Remaining()/4.f,0.f,1.f),7);
-    }
-    else if(!Healing->Status().IsEmpty())DrawText(Healing->Status(),FLinearColor::White,22,165,GEngine->GetSmallFont(),1);
     const UMarau6InventoryComponent* Inventory=Character->GetInventory();
     const auto& Snapshot=Inventory->GetSnapshot();
-    DrawText(TEXT("TAB: inventario | E: coletar loot sob a mira"),FLinearColor::White,22,140,GEngine->GetSmallFont(),1);
-    if(Snapshot.bFinalized)
-        DrawText(FString::Printf(TEXT("ITENS MANTIDOS: %d | PERDIDOS: %d"),Snapshot.Items.Num(),Snapshot.LostCount),
-            FLinearColor::White,22,163,GEngine->GetSmallFont(),1);
-    if(Character->CanParticipate())
+    const FLinearColor Fault(1.f, .25f, .2f);
+    UFont* Small=GEngine->GetSmallFont();UFont* Medium=GEngine->GetMediumFont();
+    auto RightText=[&](const FString& T,float Right,float Y,FLinearColor Color,UFont* Font,float Scale=1.f)
+    {float W=0.f,H=0.f;GetTextSize(T,W,H,Font,Scale);DrawText(T,Color,Right-W,Y,Font,Scale);return H;};
+    if (bAlive)
     {
+        const float Right = Canvas->ClipX - 36.f, BarW = 280.f, BarH = 28.f;
+        const float BarTop = Canvas->ClipY - 32.f - BarH;
+        float Top = BarTop;
+        if (Character->HasEquippedRifle())
+        {
+            // "magazine / capacity (carried)", red when empty; carried is the rifle's
+            // reserve plus unopened ammo boxes in the backpack.
+            int32 Boxes = 0;
+            for (int32 Slot = 0; Slot < Marau6Slots::BackpackCount; ++Slot)
+                if (const FMarau6Item* Item = Inventory->ItemAt(Slot)) Boxes += Item->IsAmmo() ? 1 : 0;
+            const int32 Carried = Character->GetReserveAmmo() + Boxes * Marau6Ammo::BoxRounds;
+            const FString Ammo = FString::Printf(TEXT("%d / %d (%d)"), Character->GetMagazineAmmo(), Character->GetMagazineCapacity(), Carried);
+            float W = 0.f, H = 0.f;
+            GetTextSize(Ammo, W, H, GEngine->GetLargeFont(), 1.4f);
+            Top = BarTop - 8.f - H;
+            RightText(Ammo, Right, Top, Character->GetMagazineAmmo() == 0 ? Fault : FLinearColor::White, GEngine->GetLargeFont(), 1.4f);
+            if (Character->IsReloading())
+            {
+                RightText(TEXT("RECARREGANDO"), Right, Top - 18.f, FLinearColor::Yellow, Small);
+                Top -= 20.f;
+            }
+        }
+        if (Character->GetHealing()->IsHealing())
+            RightText(FString::Printf(TEXT("CURANDO %.1fs"), Character->GetHealing()->Remaining()), Right, Top - 18.f, FLinearColor::Green, Small);
+        const float Health = FMath::Clamp(Character->GetHealth(), 0.f, 100.f);
+        DrawRect(FLinearColor(.08f, .07f, .06f, .75f), Right - BarW, BarTop, BarW, BarH);
+        DrawRect(FLinearColor(.7f, .12f, .1f, .92f), Right - BarW, BarTop, BarW * Health / 100.f, BarH);
+        const FString Life = FString::Printf(TEXT("%.0f / 100"), FMath::CeilToFloat(Health));
+        float LW = 0.f, LH = 0.f;GetTextSize(Life, LW, LH, Medium, 1.f);
+        DrawText(Life, FLinearColor::White, Right - BarW * .5f - LW * .5f, BarTop + (BarH - LH) * .5f, Medium, 1.f);
+        DrawText(TEXT("TAB"), FLinearColor(.75f, .78f, .8f), 28.f, Canvas->ClipY - 50.f, Small, 1.f);
+    }
+    if (Raid == EMarau6RaidState::Extracting)
+    {
+        const FString T = FString::Printf(TEXT("EXTRAINDO %.1fs"), Character->GetExtractionSecondsRemaining());
+        float W = 0.f, H = 0.f;GetTextSize(T, W, H, Medium, 1.f);
+        DrawText(T, FLinearColor::Green, Canvas->ClipX * .5f - W * .5f, 28.f, Medium, 1.f);
+    }
+    if (!Character->CanParticipate())
+    {
+        const FString Head = Raid == EMarau6RaidState::Extracted ? TEXT("EXTRAIDO") : TEXT("ELIMINADO");
+        const FString Sub = Snapshot.bFinalized ? FString::Printf(TEXT("MANTIDOS %d | PERDIDOS %d"), Snapshot.Items.Num(), Snapshot.LostCount)
+            : FString(BasePC && BasePC->IsUsingBase() ? TEXT("SALVANDO") : TEXT("REINICIE O PLAY"));
+        const float X = Canvas->ClipX * .5f, Y = Canvas->ClipY * .5f;
+        float W = 0.f, H = 0.f, SW = 0.f, SH = 0.f;GetTextSize(Head, W, H, Medium, 1.f);GetTextSize(Sub, SW, SH, Small, 1.f);
+        DrawRect(FLinearColor(0.f, 0.f, 0.f, .7f), X - 150.f, Y - 35.f, 300.f, 70.f);
+        DrawText(Head, Raid == EMarau6RaidState::Extracted ? FLinearColor::Green : FLinearColor::Red, X - W * .5f, Y - 25.f, Medium, 1.f);
+        DrawText(Sub, FLinearColor::White, X - SW * .5f, Y + 8.f, Small, 1.f);
+    }
+    else
+    {
+        const float X = Canvas->ClipX * 0.5f, Y = Canvas->ClipY * 0.5f;
+        DrawLine(X - 7.f, Y, X + 7.f, Y, FLinearColor::White, 1.5f);
+        DrawLine(X, Y - 7.f, X, Y + 7.f, FLinearColor::White, 1.5f);
         if(const auto* Loot=Inventory->LookedAtLoot())
         {
             bool bHasSpace=Loot->GetItem().IsRifle() && !Character->HasEquippedRifle();
             for(int32 Slot=0;Slot<Marau6Slots::BackpackCount;++Slot) if(!Inventory->ItemAt(Slot)) bHasSpace=true;
-            const FString Prompt=bHasSpace?TEXT("E: coletar ")+Loot->GetItem().Name():TEXT("MOCHILA CHEIA");
-            DrawText(Prompt,FLinearColor::Yellow,Canvas->ClipX*.5f-90,Canvas->ClipY*.65f,GEngine->GetMediumFont(),1);
+            const FString Prompt=bHasSpace?TEXT("E  ")+Loot->GetItem().Name():TEXT("MOCHILA CHEIA");
+            float W = 0.f, H = 0.f;GetTextSize(Prompt, W, H, Medium, 1.f);
+            DrawText(Prompt,FLinearColor::Yellow,X-W*.5f,Canvas->ClipY*.65f,Medium,1);
         }
     }
     if(Character->IsInventoryOpen() && !(BasePC && BasePC->HasInventoryWidget()))

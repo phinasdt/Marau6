@@ -36,3 +36,6 @@ UpgradeLog*.html
 /Backend/**/bin/
 /Backend/**/obj/
 
+
+# Raw third-party asset downloads (source files, not imported assets)
+/_import/

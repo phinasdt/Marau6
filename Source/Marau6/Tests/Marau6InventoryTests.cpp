@@ -196,6 +196,22 @@ bool FMarau6InventoryRecoveryTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Recovered rifle keeps its identity"),F.Find(Rifle)!=nullptr);
     return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMarau6BackpackReloadTest,"Marau6.Inventory.ReloadFromBackpack",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FMarau6BackpackReloadTest::RunTest(const FString& Parameters)
+{
+    FInventoryWorld F;auto* A=F.Pawn(FVector(0,0,96));auto* I=A->GetInventory();
+    FMarau6Item Rifle;Rifle.Id=FGuid::NewGuid();Rifle.Kind=EMarau6ItemKind::Rifle;Rifle.Slot=Marau6Slots::Weapon;Rifle.Magazine=10;Rifle.Reserve=0;
+    FMarau6Item Box;Box.Id=FGuid::NewGuid();Box.Kind=EMarau6ItemKind::Ammo;Box.Slot=3;
+    if(!TestTrue(TEXT("Rifle 10/0 and one box in the backpack"),F.Ledger->Import(I,FGuid::NewGuid(),{Rifle,Box})))return false;
+    A->RefreshEquippedAmmo();
+    A->ProcessEvent(A->FindFunctionChecked(TEXT("ServerReload")),nullptr);
+    TestTrue(TEXT("R reloads with an empty reserve when the backpack has ammo"),A->IsReloading());
+    TestNull(TEXT("The box is opened into the reserve"),I->ItemAt(3));
+    F.Advance(2.2f);
+    TestEqual(TEXT("Magazine filled from the box"),A->GetMagazineAmmo(),20);
+    TestEqual(TEXT("Rest of the box stays in reserve"),A->GetReserveAmmo(),10);
+    return true;
+}
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMarau6ReentrantInventoryTest,"Marau6.Inventory.ReentrantDrop",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FMarau6ReentrantInventoryTest::RunTest(const FString& Parameters)
 {

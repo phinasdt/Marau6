@@ -3,6 +3,12 @@
 
 #include "Marau6PlayerController.h"
 #include "Marau6Persistence.h"
+#include "Marau6Audio.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/ReverbEffect.h"
+#include "Sound/SoundAttenuation.h"
+#include "Sound/SoundBase.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Marau6Character.h"
 #include "Net/UnrealNetwork.h"
 #include "Marau6PrototypeHUD.h"
@@ -18,18 +24,37 @@ AMarau6PlayerController::AMarau6PlayerController()
 {
 	// set the player camera manager class
 	PlayerCameraManagerClass = AMarau6CameraManager::StaticClass();
+    AmbientReverb = CreateDefaultSubobject<UReverbEffect>(TEXT("AmbientReverb"));
+    Marau6Audio::ConfigureAmbientReverb(*AmbientReverb);
+    static ConstructorHelpers::FObjectFinder<USoundBase> Gas(TEXT("/Game/Marau6/Audio/S_Decompression.S_Decompression"));
+    GasSound = Gas.Object;
+    GasAttenuation = CreateDefaultSubobject<USoundAttenuation>(TEXT("GasAttenuation"));
+    Marau6Audio::ConfigureOwnerSend(GasAttenuation->Attenuation, .3f);
+}
+
+// bInRaid is set by the server and replicated; a listen server host has no OnRep, so watch it here.
+void AMarau6PlayerController::UpdateRaidGas()
+{
+    if(!IsLocalPlayerController() || bInRaid==bHeardRaid)return;
+    bHeardRaid=bInRaid;
+    if(bInRaid && GasSound)UGameplayStatics::PlaySoundAtLocation(this, GasSound, GetFocalLocation(), FRotator::ZeroRotator,
+        Marau6Audio::GasVolume, Marau6Audio::GasPitch, 0.f, GasAttenuation);
 }
 
 void AMarau6PlayerController::BeginPlay()
 {
     Super::BeginPlay();
     if(HasAuthority() && UMarau6Persistence::UsesPersistentBase(GetWorld()))
-    {bUseBase=true;BaseMessage=TEXT("1: Teste 1 | 2: Teste 2");if(auto* P=Cast<AMarau6Character>(GetPawn()))P->SetAtBase(true);}
+    {bUseBase=true;BaseMessage=TEXT("1: Teste 1 | 2: Teste 2");if(auto* P=Cast<AMarau6Character>(GetPawn()))P->SetAtBase(true);
+    // The basic kit is the default loadout; automated tests choose their kit explicitly.
+    if(!GIsAutomationTesting)bBasicKit=true;}
 
 
     if (IsLocalPlayerController())
     {
         ClientSetHUD(AMarau6PrototypeHUD::StaticClass());
+        UGameplayStatics::ActivateReverbEffect(this, AmbientReverb, Marau6Audio::AmbientReverbTag,
+            0.f, Marau6Audio::AmbientReverbVolume, .5f);
     }
 
 	
@@ -65,6 +90,7 @@ void AMarau6PlayerController::SetupInputComponent()
     InputComponent->BindKey(EKeys::Enter,IE_Pressed,this,&AMarau6PlayerController::BaseAccept);
     InputComponent->BindKey(EKeys::B,IE_Pressed,this,&AMarau6PlayerController::BaseEnter);
     InputComponent->BindKey(EKeys::N,IE_Pressed,this,&AMarau6PlayerController::BaseNext);
+    InputComponent->BindKey(EKeys::K,IE_Pressed,this,&AMarau6PlayerController::ToggleKit);
 
 
 	// only add IMCs for local player controllers
@@ -101,7 +127,7 @@ void AMarau6PlayerController::GetLifetimeReplicatedProps(TArray<FLifetimePropert
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(AMarau6PlayerController,bUseBase);DOREPLIFETIME(AMarau6PlayerController,bInRaid);
-    DOREPLIFETIME(AMarau6PlayerController,InventoryContext);DOREPLIFETIME(AMarau6PlayerController,bBaseBusy);
+    DOREPLIFETIME(AMarau6PlayerController,InventoryContext);DOREPLIFETIME(AMarau6PlayerController,bBaseBusy);DOREPLIFETIME(AMarau6PlayerController,bBasicKit);
     DOREPLIFETIME(AMarau6PlayerController,BaseProfile);DOREPLIFETIME(AMarau6PlayerController,BaseJson);DOREPLIFETIME(AMarau6PlayerController,BaseMessage);DOREPLIFETIME(AMarau6PlayerController,BaseBackendStatus);
 }
 void AMarau6PlayerController::OnPossess(APawn* NewPawn)
@@ -124,6 +150,9 @@ void AMarau6PlayerController::BaseNext(){if(bUseBase && !bInRaid){InventoryMessa
 void AMarau6PlayerController::ServerSelectProfile_Implementation(int32 N){GetWorld()->GetSubsystem<UMarau6Persistence>()->SelectProfile(this,N);}
 void AMarau6PlayerController::ServerBaseMove_Implementation(int32 S,int32 D)
 {TWeakObjectPtr<AMarau6PlayerController> Weak(this);GetWorld()->GetSubsystem<UMarau6Persistence>()->MoveBase(this,S,D,[Weak](bool,const FString& Why){if(auto* PC=Weak.Get())PC->ClientInventoryNotice(Why);});}
+void AMarau6PlayerController::SelectKit(bool bBasic){if(bUseBase && !bInRaid && bBasic!=bBasicKit){InventoryMessage.Empty();ServerSelectKit(bBasic);}}
+void AMarau6PlayerController::ToggleKit(){SelectKit(!bBasicKit);}
+void AMarau6PlayerController::ServerSelectKit_Implementation(bool bBasic){GetWorld()->GetSubsystem<UMarau6Persistence>()->SelectKit(this,bBasic);}
 void AMarau6PlayerController::ServerEnterRaid_Implementation(){GetWorld()->GetSubsystem<UMarau6Persistence>()->EnterRaid(this);}
 void AMarau6PlayerController::ServerNextRound_Implementation(){GetWorld()->GetSubsystem<UMarau6Persistence>()->NextRound(this);}
 void AMarau6PlayerController::BaseRight()

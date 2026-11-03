@@ -22,6 +22,7 @@ public:
     bool CanMutate() const { return bReady && !bEntering && !bFatal; }
     bool CommitLedger();
     void SelectProfile(AMarau6PlayerController* PC,int32 Number);
+    void SelectKit(AMarau6PlayerController* PC,bool bBasic);
     void MoveBase(AMarau6PlayerController* PC,int32 Source,int32 Destination,TFunction<void(bool,const FString&)> Done={});
     void EnterRaid(AMarau6PlayerController* PC);
     void NextRound(AMarau6PlayerController* PC);

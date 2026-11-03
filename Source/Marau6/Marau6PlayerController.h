@@ -9,8 +9,12 @@
 
 class UMarau6Persistence;
 class UMarau6InventoryWidget;
+class UMarau6HUDWidget;
 class UInputMappingContext;
 class UUserWidget;
+class UReverbEffect;
+class USoundBase;
+class USoundAttenuation;
 
 /**
  *  Simple first person Player Controller
@@ -30,6 +34,11 @@ public:
 	AMarau6PlayerController();
 
     bool IsUsingBase() const { return bUseBase; }
+    /** Base choice for the next raid: BASIC KIT (a fresh rifle, own gear stays home) or CUSTOM KIT. */
+    bool IsBasicKit() const { return bBasicKit; }
+    void SelectKit(bool bBasic);
+    /** Equipment slots show the fixed basic kit and cannot be edited; the custom loadout stays saved. */
+    bool IsKitLocked(int32 Slot) const { return IsInventoryAtBase() && bBasicKit && Slot>=0 && Slot<100; }
     bool IsInRaid() const { return bInRaid; }
     const FString& GetBaseJson() const { return BaseJson; }
     const FString& GetBaseMessage() const { return BaseMessage; }
@@ -44,6 +53,8 @@ public:
     bool InventoryRequestPending() const;
     bool HasOwnInventoryDrag() const;
     bool HasInventoryWidget() const { return InventoryWidget!=nullptr; }
+    bool HasHUDWidget() const { return HUDWidget!=nullptr; }
+    UMarau6HUDWidget* GetHUDWidget() const {return HUDWidget.Get();}
     UMarau6InventoryWidget* GetInventoryWidget() const {return InventoryWidget.Get();}
     const TArray<FMarau6Item>& GetInventoryUIItems() const;
     const FMarau6Item* InventoryUIItemAt(int32 Slot) const;
@@ -72,16 +83,28 @@ public:
     UFUNCTION(Server,Reliable) void ServerSelectProfile(int32 Number);
     UFUNCTION(Server,Reliable) void ServerBaseMove(int32 Source,int32 Destination);
     UFUNCTION(Server,Reliable) void ServerEnterRaid();
+    UFUNCTION(Server,Reliable) void ServerSelectKit(bool bBasic);
     UFUNCTION(Server,Reliable) void ServerNextRound();
 private:
     friend class UMarau6Persistence;
     UPROPERTY(Replicated) bool bUseBase=false;
     UPROPERTY(Replicated) bool bInRaid=false;
     UPROPERTY(Replicated) bool bBaseBusy=false;
+    UPROPERTY(Replicated) bool bBasicKit=false;
     UPROPERTY(Replicated) FGuid InventoryContext;
     UPROPERTY(Transient) TObjectPtr<UMarau6InventoryWidget> InventoryWidget;
+    UPROPERTY(Transient) TObjectPtr<UMarau6HUDWidget> HUDWidget;
+    /** Local listener only: the map's soft room tail, see Marau6Audio. */
+    UPROPERTY() TObjectPtr<UReverbEffect> AmbientReverb;
+    /** Local listener only: decompression gas on raid entry. */
+    UPROPERTY() TObjectPtr<USoundBase> GasSound;
+    UPROPERTY() TObjectPtr<USoundAttenuation> GasAttenuation;
+    bool bHeardRaid=false;
+    void UpdateRaidGas();
     mutable FString CachedInventoryJson;
     mutable TArray<FMarau6Item> CachedBaseItems;
+    /** Base view with the basic kit selected: the stash plus the kit preview in the equipment slots. */
+    mutable TArray<FMarau6Item> CachedKitItems;
     mutable int32 CachedBaseRevision=0;
     FString InventoryContextKey,InventoryMessage,InventoryCompletionMessage,ObservedBaseMessage;
     FGuid LastInventoryContext,PendingInventoryRequest,PendingInventoryContext,ServerInventoryRequest;
@@ -97,6 +120,7 @@ private:
     UPROPERTY(Replicated) FString BaseMessage;
     UPROPERTY(Replicated) FString BaseBackendStatus;
     int32 BaseSelection=0,BaseSource=INDEX_NONE;
+    void ToggleKit();
     void SelectOne();void SelectTwo();void BaseUp();void BaseDown();void BaseLeft();void BaseRight();void BaseAccept();void BaseEnter();void BaseNext();
 protected:
 

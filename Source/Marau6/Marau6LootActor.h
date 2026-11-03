@@ -27,6 +27,10 @@ private:
     UPROPERTY() TObjectPtr<UTextRenderComponent> Label;
     UPROPERTY() TObjectPtr<UStaticMesh> RifleMesh;
     UPROPERTY() TObjectPtr<UStaticMesh> BoxMesh;
+    /** Ground models per kind (scripts/import_loot_meshes.py); the cube stands in if one is missing. */
+    UPROPERTY() TObjectPtr<UStaticMesh> MedkitMesh;
+    UPROPERTY() TObjectPtr<UStaticMesh> AmmoMesh;
+    UPROPERTY() TObjectPtr<UStaticMesh> ScrapMesh;
     UFUNCTION() void OnRep_Item();
     virtual void BeginPlay() override;
     virtual void EndPlay(EEndPlayReason::Type Reason) override;

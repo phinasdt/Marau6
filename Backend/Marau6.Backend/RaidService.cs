@@ -16,9 +16,12 @@ public static class RaidService
         Require(!r.Closed && p.Revision == c.Revision, "Partida fechada ou versão antiga");
         Require(!r.Participants.Any(x => x.Profile == c.Profile), "Uma entrada por rodada");
         Require(!s.Raids.Any(x => !x.Closed && x.Participants.Any(y => y.Profile == c.Profile && y.Outcome == "active")), "Perfil já está em uma partida");
-        var equipment = p.Items.Where(x => x.Slot < 100).ToList();
+        Require(c.Kit is null or "custom" or "basic", "Kit inválido");
+        var basic = c.Kit == "basic";
+        // BASIC kit: the profile keeps its gear; rifle, two ammo boxes and a medkit are minted as reserved equipment.
+        var equipment = basic ? BasicKit(p) : p.Items.Where(x => x.Slot < 100).ToList();
         foreach (var i in equipment) { p.Items.Remove(i); var live=i.Copy(); live.Custody="inventory"; r.Items.Add(live); }
-        r.Participants.Add(new Participation { Profile = c.Profile }); p.Revision++;
+        r.Participants.Add(new Participation { Profile = c.Profile, Kit = basic ? "basic" : "custom" }); p.Revision++;
         return new { profile = p, items = equipment };
     }
     public static object Snapshot(State s, SnapshotCommand c)
@@ -79,7 +82,8 @@ public static class RaidService
             var p = Profiles.Get(s, result.Profile);
             var kept = c.Items.Where(x => x.Owner == p.Id.ToString()).ToList();
             Require(kept.All(x => x.Custody == "result" && (result.Outcome == "extracted" || x.Slot is 8 or 9)), "Itens mantidos incompatíveis com resultado");
-            p.Items.AddRange(kept.Select(x => { var returned=x.Copy(); returned.Custody="inventory"; return returned; })); p.Revision++; participant.Outcome = result.Outcome;
+            foreach (var x in kept) Return(p, x, participant.Kit == "basic");
+            p.Revision++; participant.Outcome = result.Outcome;
         }
         foreach (var i in c.Items.Where(x => x.Custody == "result" && activeOwners.Contains(x.Owner)))
             Require(c.Results.Any(x => Profiles.Get(s,x.Profile).Id.ToString() == i.Owner), "Item de resultado sem finalização");
@@ -95,10 +99,31 @@ public static class RaidService
         {
             var p = Profiles.Get(s, active.Profile);
             foreach (var i in r.Items.Where(x => x.Owner == p.Id.ToString() && x.Custody == "inventory" && x.Slot is 8 or 9))
-                { var returned=i.Copy(); returned.Custody="inventory"; p.Items.Add(returned); }
+                Return(p, i, active.Kit == "basic");
             p.Revision++; active.Outcome = "abandoned";
         }
         r.Closed = true; return r;
+    }
+    static List<Item> BasicKit(Profile p) =>
+    [
+        new Item { Id = Guid.NewGuid(), Kind = 0, Slot = 10, Magazine = 20, Reserve = 40, Durability = 10000, Owner = p.Id.ToString() },
+        new Item { Id = Guid.NewGuid(), Kind = 3, Slot = 0, Owner = p.Id.ToString() },
+        new Item { Id = Guid.NewGuid(), Kind = 3, Slot = 1, Owner = p.Id.ToString() },
+        new Item { Id = Guid.NewGuid(), Kind = 1, Slot = 2, Owner = p.Id.ToString() },
+    ];
+    // A BASIC participant still owns its base gear: a colliding slot moves to the first free stash slot,
+    // and with a full stash the item is lost (never throw on a raid path; the unique slot index would 503).
+    static void Return(Profile p, Item i, bool remap)
+    {
+        var returned = i.Copy(); returned.Custody = "inventory";
+        bool Free(int slot) => Inventory.Accepts(slot, returned.Kind) && !p.Items.Any(x => x.Slot == slot);
+        if (remap && !Free(returned.Slot))
+        {
+            var slot = Enumerable.Range(100, 32).Where(Free).DefaultIfEmpty(-1).First();
+            if (slot < 0) return;
+            returned.Slot = slot;
+        }
+        p.Items.Add(returned);
     }
     public static object ReadRaid(State s, Guid id) => Raid(s,id);
 }

@@ -27,9 +27,11 @@ No mapa `Content/FirstPerson/Lvl_FirstPerson.umap`, configure Play:
 
 Cada janela começa na base. Clique para dar foco; escolha Teste1 com a tecla1 em uma janela e Teste2 com a tecla2 na outra. Prepare o equipamento e pressione B para entrar. Na arena, os dois jogadores devem conseguir andar, olhar e pular. Shift+F1 libera o cursor. Veja [base, stash e persistência](docs/base-stash-persistencia.md).
 
+Shift corre (só para frente, sem disparar) e o botão direito mira com zoom. O disparo tem recuo, traçante, fumaça, marcas de bala e sangue; mortos viram ragdoll. Veja [sensação da arma](docs/sensacao-arma.md).
+
 O botão esquerdo dispara um tiro instantâneo de teste:
 - 25 de dano uniforme, 100 de vida inicial.
-- Intervalo mínimo de 0,25 segundo; alcance de 100 metros.
+- 450 disparos por minuto (0,133 segundo); alcance de 100 metros.
 - O servidor calcula o acerto e o dano. O cliente não envia alvo, origem nem valor de dano.
 - Mira e vida aparecem na tela. Um clarão breve aparece na boca do rifle; superfícies atingidas recebem um brilho temporário. Tiro no vazio não cria impacto.
 - Paredes e blocos sólidos bloqueiam o disparo.

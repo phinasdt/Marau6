@@ -22,8 +22,13 @@ void UMarau6HealingComponent::UseSelected()
 {
     auto* C=Character();if(!C || !C->IsLocallyControlled())return;
     if(bHealing){ServerCancel();return;}
-    if(!C->IsInventoryOpen()){Message(TEXT("TAB: abra o inventario, selecione Suprimentos e pressione H."));return;}
+    if(!C->IsInventoryOpen()){Message(TEXT("Aperte duas vezes a tecla do slot (1-8) ou abra o inventario (TAB) e pressione H."));return;}
     const auto* Item=C->GetInventory()->ItemAt(C->GetSelectedInventorySlot());ServerUse(Item?Item->Id:FGuid());
+}
+void UMarau6HealingComponent::UseItem(FGuid Id)
+{
+    auto* C=Character();if(!C || !C->IsLocallyControlled())return;
+    if(bHealing)ServerCancel();else ServerUse(Id);
 }
 void UMarau6HealingComponent::ServerUse_Implementation(FGuid Id)
 {

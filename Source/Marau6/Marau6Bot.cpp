@@ -1,9 +1,12 @@
 #include "Marau6Bot.h"
 #include "Marau6DestructibleSection.h"
 #include "Marau6Character.h"
+#include "Marau6Ragdoll.h"
+#include "Marau6ShotFX.h"
 #include "Marau6Persistence.h"
 #include "Marau6ItemLedger.h"
 #include "Marau6ShotEffect.h"
+#include "Marau6Footsteps.h"
 #include "AIController.h"
 #include "NavigationSystem.h"
 #include "NavigationPath.h"
@@ -28,12 +31,13 @@ AMarau6Bot::AMarau6Bot()
     AIControllerClass=AAIController::StaticClass();AutoPossessAI=EAutoPossessAI::PlacedInWorldOrSpawned;
     GetCapsuleComponent()->InitCapsuleSize(34,96);GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn,ECR_Block);GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Visibility,ECR_Block);
     GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);GetMesh()->SetCanEverAffectNavigation(false);GetMesh()->SetRelativeLocation(FVector(0,0,-96));GetMesh()->SetRelativeRotation(FRotator(0,-90,0));
-    static ConstructorHelpers::FObjectFinder<USkeletalMesh> Body(TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"));GetMesh()->SetSkeletalMesh(Body.Object);
+    static ConstructorHelpers::FObjectFinder<USkeletalMesh> Body(TEXT("/Game/Marau6/Characters/Krieg/SKM_Krieg.SKM_Krieg"));GetMesh()->SetSkeletalMesh(Body.Object);
     static ConstructorHelpers::FObjectFinder<UAnimSequence> Idle(TEXT("/Game/Characters/Mannequins/Anims/Rifle/MF_Rifle_Idle_ADS.MF_Rifle_Idle_ADS"));IdleAnimation=Idle.Object;
     static ConstructorHelpers::FObjectFinder<UAnimSequence> Walk(TEXT("/Game/Characters/Mannequins/Anims/Rifle/Walk/MF_Rifle_Walk_Fwd.MF_Rifle_Walk_Fwd"));WalkAnimation=Walk.Object;
     Rifle=CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("BotRifle"));Rifle->SetupAttachment(GetMesh(),TEXT("HandGrip_R"));Rifle->SetCollisionEnabled(ECollisionEnabled::NoCollision);Rifle->SetCanEverAffectNavigation(false);
-    static ConstructorHelpers::FObjectFinder<USkeletalMesh> Gun(TEXT("/Game/Weapons/Rifle/Meshes/SKM_Rifle.SKM_Rifle"));Rifle->SetSkeletalMesh(Gun.Object);
+    static ConstructorHelpers::FObjectFinder<USkeletalMesh> Gun(TEXT("/Game/Weapons/Lasgun/Meshes/SKM_Lasgun.SKM_Lasgun"));Rifle->SetSkeletalMesh(Gun.Object);
     Nameplate=CreateDefaultSubobject<UTextRenderComponent>(TEXT("BotLabel"));Nameplate->SetupAttachment(GetRootComponent());Nameplate->SetRelativeLocation(FVector(0,0,125));Nameplate->SetText(FText::FromString(TEXT("BOT")));Nameplate->SetHorizontalAlignment(EHTA_Center);Nameplate->SetWorldSize(20);Nameplate->SetTextRenderColor(FColor::Red);Nameplate->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    Footsteps=CreateDefaultSubobject<UMarau6Footsteps>(TEXT("Footsteps"));
     bUseControllerRotationYaw=false;GetCharacterMovement()->bOrientRotationToMovement=true;GetCharacterMovement()->MaxWalkSpeed=250;GetCharacterMovement()->RotationRate=FRotator(0,360,0);
 }
 void AMarau6Bot::BeginPlay()
@@ -113,15 +117,19 @@ float AMarau6Bot::TakeDamage(float Damage,const FDamageEvent& Event,AController*
         if(GetWorld()->LineTraceSingleByChannel(Floor,GetActorLocation(),GetActorLocation()-FVector(0,0,500),ECC_Visibility,Q))Point=Floor.ImpactPoint+FVector(0,0,25);
         auto* Ledger=GetWorld()->GetSubsystem<UMarau6ItemLedger>();if(!Ledger || !Ledger->GrantWorld(LootId,EMarau6ItemKind::Scrap,Point))return 0;
         Health=0;State=EMarau6BotState::Dead;Target.Reset();if(auto* AI=Cast<AAIController>(GetController())){AI->ClearFocus(EAIFocusPriority::Gameplay);AI->StopMovement();}
-        GetCharacterMovement()->DisableMovement();OnRep_State();SetLifeSpan(8);
+        GetCharacterMovement()->DisableMovement();OnRep_State();SetLifeSpan(CorpseSeconds);
     }
     else Health-=Applied;
     ForceNetUpdate();Super::TakeDamage(Applied,Event,DamageInstigator,Causer);return Applied;
 }
 void AMarau6Bot::OnRep_State()
-{if(!IsAlive()){Nameplate->SetText(FText::FromString(TEXT("BOT ELIMINADO")));SetActorEnableCollision(false);GetCharacterMovement()->DisableMovement();GetMesh()->SetRelativeRotation(FRotator(0,-90,90));GetMesh()->SetRelativeLocation(FVector(0,0,-70));GetMesh()->bPauseAnims=true;}}
+{if(!IsAlive()){Nameplate->SetText(FText::FromString(TEXT("BOT ELIMINADO")));GetCharacterMovement()->DisableMovement();Marau6Ragdoll::Start(this,FVector::ZeroVector);}}
 void AMarau6Bot::PresentShot_Implementation(FVector_NetQuantize Point,FVector_NetQuantizeNormal Normal,bool bHit,bool bCharacter)
-{if(GetNetMode()!=NM_DedicatedServer)if(auto* Effect=GetWorld()->SpawnActor<AMarau6ShotEffect>())Effect->Present(Rifle,false,Point,Normal,bHit,bCharacter);}
+{
+    if(GetNetMode()==NM_DedicatedServer)return;
+    if(auto* Effect=GetWorld()->SpawnActor<AMarau6ShotEffect>())Effect->Present(Rifle,false,Point,Normal,bHit,bCharacter);
+    if(auto* FX=GetWorld()->SpawnActor<AMarau6ShotFX>(AMarau6ShotFX::StaticClass(),FTransform(FVector(Point))))FX->Present(Rifle,false,Point,Normal,bHit,bCharacter,FVector::ZeroVector,1.f);
+}
 void AMarau6Bot::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps)const
 {Super::GetLifetimeReplicatedProps(OutLifetimeProps);DOREPLIFETIME(AMarau6Bot,Health);DOREPLIFETIME(AMarau6Bot,State);DOREPLIFETIME(AMarau6Bot,LootId);DOREPLIFETIME(AMarau6Bot,ShotCount);}
 void AMarau6Bot::EndPlay(const EEndPlayReason::Type Reason)

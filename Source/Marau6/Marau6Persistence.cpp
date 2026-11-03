@@ -143,6 +143,13 @@ void UMarau6Persistence::Tick(float Delta)
         auto* Scenery=GetWorld()->GetSubsystem<UMarau6Destruction>();
         if(Scenery && Scenery->IsReadyForRound()){bOpening=false;bRoundAcknowledged=false;bReady=true;CommitLedger();}
     }
+    // Players arrive with a profile already chosen: the first free one (Perfil 1, then 2).
+    // Automated tests pick profiles themselves.
+    if(bReady && !GIsAutomationTesting)
+        for(TActorIterator<AMarau6PlayerController> It(GetWorld());It;++It)
+            if(It->bUseBase && !It->bInRaid && It->BaseProfile==0)
+                for(int32 Number=1;Number<=2;++Number)
+                    if(!Claims.FindRef(Number).IsValid()){SelectProfile(*It,Number);break;}
     Retry-=Delta;
     if(Commands.IsEmpty() && !bSending && !bOpening && bRecovery)
     {bRecovery=false;RaidId.Empty();OpenRound();}
@@ -213,11 +220,23 @@ void UMarau6Persistence::SelectProfile(AMarau6PlayerController* PC,int32 Number)
     if(PC->BaseProfile) Claims.Remove(PC->BaseProfile);
     PC->BaseProfile=Number;Claims.Add(Number,PC);PC->BaseJson.Empty();PC->BaseMessage=TEXT("Carregando perfil...");Refresh(PC);
 }
+void UMarau6Persistence::SelectKit(AMarau6PlayerController* PC,bool bBasic)
+{
+    if(!IsValid(PC) || PC->bInRaid)return;
+    if(!bReady || bFatal){PC->BaseMessage=TEXT("Backend nao esta pronto. Aguarde; se nao conectar, use Iniciar-Marau6.cmd.");PC->ForceNetUpdate();return;}
+    // Only this player's own state matters: the kit is read when their entry request is built.
+    if(PC->bBaseBusy || (PC->BaseProfile!=0 && Entered.Contains(PC->BaseProfile)))
+    {PC->BaseMessage=TEXT("Aguarde a operacao pendente antes de trocar o kit.");PC->ForceNetUpdate();return;}
+    PC->bBasicKit=bBasic;
+    PC->BaseMessage=bBasic?TEXT("KIT BASICO: rifle novo 20/40; seu equipamento fica na base."):TEXT("KIT PERSONALIZADO: entra com o equipamento preparado.");
+    PC->ForceNetUpdate();
+}
 void UMarau6Persistence::MoveBase(AMarau6PlayerController* PC,int32 Source,int32 Destination,TFunction<void(bool,const FString&)> Done)
 {
     auto Reject=[&](const FString& Why){if(IsValid(PC)){PC->BaseMessage=Why;PC->ForceNetUpdate();}if(Done)Done(false,Why);};
     if(!bReady || bFatal || !IsValid(PC) || PC->bInRaid || PC->BaseJson.IsEmpty()){Reject(TEXT("Inventario indisponivel neste estado."));return;}
     if(PC->bBaseBusy || bEntering){Reject(TEXT("Aguarde a transferencia pendente."));return;}
+    if(PC->bBasicKit && (Source<100 || Destination<100)){Reject(TEXT("Kit basico bloqueado. Troque para o kit personalizado para editar."));return;}
     auto State=Parse(PC->BaseJson);if(!State){Reject(TEXT("Aguarde atualizar a base."));return;}
     const TArray<TSharedPtr<FJsonValue>>* Items;if(!State->TryGetArrayField(TEXT("items"),Items)){Reject(TEXT("Aguarde atualizar a base."));return;}
     FString Id;for(const auto& V:*Items)if(V->AsObject()->GetIntegerField(TEXT("slot"))==Source)Id=V->AsObject()->GetStringField(TEXT("id"));
@@ -262,6 +281,8 @@ void UMarau6Persistence::EnterRaid(AMarau6PlayerController* PC)
     {PC->BaseMessage=TEXT("Nao ha ponto de inicio livre no mapa; equipamento nao foi reservado.");PC->ForceNetUpdate();return;}
     auto State=Parse(PC->BaseJson);if(!State)return;
     auto O=Operation();O->SetStringField(TEXT("raidId"),RaidId);O->SetNumberField(TEXT("profile"),PC->BaseProfile);O->SetNumberField(TEXT("revision"),State->GetIntegerField(TEXT("revision")));
+    // Only a basic entry names its kit, so custom entries keep their original body and receipt.
+    if(PC->bBasicKit)O->SetStringField(TEXT("kit"),TEXT("basic"));
     bEntering=true;PC->BaseMessage=TEXT("Reservando equipamento...");TWeakObjectPtr<AMarau6PlayerController> Weak=PC;const int32 Number=PC->BaseProfile;
     Queue(TEXT("/raids/enter"),O,[this,Weak,Number](const FString& Text)
     {

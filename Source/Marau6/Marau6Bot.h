@@ -6,6 +6,7 @@ class AMarau6Character;
 class USkeletalMeshComponent;
 class UAnimSequence;
 class UTextRenderComponent;
+class UMarau6Footsteps;
 UENUM()
 enum class EMarau6BotState : uint8 { Patrol, Investigate, Combat, Dead };
 /** Server-only decisions; clients receive movement, health and cosmetic shots. */
@@ -21,6 +22,8 @@ public:
     float GetHealth() const { return Health; }
     bool IsAlive() const { return Health>0; }
     EMarau6BotState GetBotState() const { return State; }
+    /** Dead bots stay as ragdolls this long (5 min); a new round clears them anyway. */
+    static constexpr float CorpseSeconds = 300.f;
     FGuid GetLootId() const { return LootId; }
     int32 GetShotCount() const { return ShotCount; }
     FVector GetLastSeen() const { return LastSeen; }
@@ -40,6 +43,7 @@ private:
     UPROPERTY() TObjectPtr<UAnimSequence> IdleAnimation;
     UPROPERTY() TObjectPtr<UAnimSequence> WalkAnimation;
     UPROPERTY(VisibleAnywhere) TObjectPtr<UTextRenderComponent> Nameplate;
+    UPROPERTY(VisibleAnywhere) TObjectPtr<UMarau6Footsteps> Footsteps;
     bool bWalkingAnimation=false,bResolvingDeath=false;
     TWeakObjectPtr<AMarau6Character> Target;
     FVector Home=FVector::ZeroVector,LastSeen=FVector::ZeroVector;

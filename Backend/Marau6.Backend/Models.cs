@@ -28,6 +28,7 @@ public sealed class Participation
 {
     public int Profile { get; set; }
     public string Outcome { get; set; } = "active";
+    public string Kit { get; set; } = "custom";
 }
 public sealed class Raid
 {
@@ -45,6 +46,7 @@ public sealed class State
 }
 public record MoveCommand(Guid OperationId, int Profile, int Revision, Guid Item, int Destination);
 public record RaidCommand(Guid OperationId, Guid RaidId);
-public record EnterCommand(Guid OperationId, Guid RaidId, int Profile, int Revision);
+// Kit absent on legacy bodies: omitted when null so their receipt hashes are unchanged.
+public record EnterCommand(Guid OperationId, Guid RaidId, int Profile, int Revision, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Kit = null);
 public record Result(int Profile, string Outcome);
 public record SnapshotCommand(Guid OperationId, Guid RaidId, long Sequence, List<Item> Items, List<Result> Results);
